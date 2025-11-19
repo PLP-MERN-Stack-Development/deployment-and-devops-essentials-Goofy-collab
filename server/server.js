@@ -1,384 +1,646 @@
-
+// server.js - Production-ready Socket.io chat server with MongoDB
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const morgan = require('morgan');
+const compression = require('compression');
 const dotenv = require('dotenv');
 const path = require('path');
+const mongoose = require('mongoose');
 
+// Load environment variables
 dotenv.config();
 
+// Import Models
+const Message = require('./models/Message');
+const User = require('./models/User');
+
+// Initialize Express app
 const app = express();
 const server = http.createServer(app);
+
+// Socket.io setup
 const io = new Server(server, {
   cors: {
     origin: process.env.CLIENT_URL || 'http://localhost:5173',
     methods: ['GET', 'POST'],
     credentials: true,
   },
-  maxHttpBufferSize: 5e6, // 5MB for file uploads
+  maxHttpBufferSize: 5e6,
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
-app.use(cors());
-app.use(express.json());
+
+// MIDDLEWARE
+
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:5173'];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+}));
+
+const limiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', limiter);
+
+app.use(compression());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+if (process.env.NODE_ENV === 'production') {
+  app.use(morgan('combined'));
+} else {
+  app.use(morgan('dev'));
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Data stores
-const users = new Map();
-const messages = new Map(); // room -> messages
-const privateMessages = new Map(); // userId -> messages
-const typingUsers = new Map(); // room -> Set of userIds
-const readReceipts = new Map(); // messageId -> Set of userIds who read it
+
+// MONGODB CONNECTION
+
+
+const connectDB = async () => {
+  if (process.env.MONGODB_URI) {
+    try {
+      await mongoose.connect(process.env.MONGODB_URI, {
+        maxPoolSize: 10,
+        serverSelectionTimeoutMS: 5000,
+        socketTimeoutMS: 45000,
+      });
+      console.log(' MongoDB connected successfully');
+      console.log(' Database:', mongoose.connection.db.databaseName);
+    } catch (error) {
+      console.error(' MongoDB connection error:', error.message);
+      if (process.env.NODE_ENV === 'production') {
+        console.error('  Running without database in production!');
+      }
+    }
+  } else {
+    console.log('ℹ  No MONGODB_URI provided - running in-memory only');
+  }
+};
+
+connectDB();
+
+
+// IN-MEMORY STORES (Fallback)
+
+
+const typingUsers = new Map();
 const rooms = ['general', 'random', 'tech'];
 
-// Initialize room message stores
 rooms.forEach(room => {
-  messages.set(room, []);
   typingUsers.set(room, new Set());
 });
 
-// Helper function to get user info
-const getUserInfo = (socketId) => users.get(socketId);
 
-// Helper function to add message to room
-const addRoomMessage = (room, message) => {
-  const roomMessages = messages.get(room) || [];
-  roomMessages.push(message);
-  
-  // Keep only last 100 messages per room
-  if (roomMessages.length > 100) {
-    roomMessages.shift();
-  }
-  
-  messages.set(room, roomMessages);
-};
+// HELPER FUNCTIONS
 
-// Socket.io connection handler
+
+const isMongoConnected = () => mongoose.connection.readyState === 1;
+
+
+// SOCKET.IO EVENT HANDLERS
+
+
 io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
+  console.log(` User connected: ${socket.id}`);
 
   // Handle user joining
-  socket.on('user_join', (username) => {
-    users.set(socket.id, {
-      id: socket.id,
-      username,
-      joinedAt: new Date().toISOString(),
-      currentRoom: 'general',
-    });
-
-    // Join default room
-    socket.join('general');
-
-    // Emit user list to all clients
-    io.emit('user_list', Array.from(users.values()));
-    
-    // Emit user joined notification
-    io.emit('user_joined', {
-      username,
-      id: socket.id,
-      timestamp: new Date().toISOString(),
-    });
-
-    // Send existing messages to the new user
-    const generalMessages = messages.get('general') || [];
-    socket.emit('message_history', {
-      room: 'general',
-      messages: generalMessages,
-    });
-
-    console.log(`${username} joined the chat`);
-  });
-
-  // Handle joining a room
-  socket.on('join_room', (room) => {
-    const user = getUserInfo(socket.id);
-    if (!user) return;
-
-    // Leave current room
-    if (user.currentRoom) {
-      socket.leave(user.currentRoom);
-      const typingSet = typingUsers.get(user.currentRoom);
-      if (typingSet) {
-        typingSet.delete(socket.id);
-        io.to(user.currentRoom).emit('typing_users', {
-          room: user.currentRoom,
-          users: Array.from(typingSet).map(id => getUserInfo(id)?.username).filter(Boolean),
+  socket.on('user_join', async (username) => {
+    try {
+      // Save to MongoDB if connected
+      if (isMongoConnected()) {
+        const user = new User({
+          username,
+          socketId: socket.id,
+          currentRoom: 'general',
+          isOnline: true,
         });
-      }
-    }
-
-    // Join new room
-    socket.join(room);
-    user.currentRoom = room;
-    users.set(socket.id, user);
-
-    // Send room message history
-    const roomMessages = messages.get(room) || [];
-    socket.emit('message_history', {
-      room,
-      messages: roomMessages,
-    });
-
-    console.log(`${user.username} joined room: ${room}`);
-  });
-
-  // Handle chat messages
-  socket.on('send_message', (data) => {
-    const user = getUserInfo(socket.id);
-    if (!user) return;
-
-    const { message, file, room = user.currentRoom } = data;
-
-    const messageData = {
-      id: `${Date.now()}-${socket.id}`,
-      sender: user.username,
-      senderId: socket.id,
-      message,
-      file,
-      room,
-      timestamp: new Date().toISOString(),
-      read: false,
-    };
-
-    // Add to room messages
-    addRoomMessage(room, messageData);
-
-    // Emit to all users in the room
-    io.to(room).emit('receive_message', messageData);
-
-    // Acknowledge message delivery
-    socket.emit('message_delivered', {
-      id: messageData.id,
-      timestamp: messageData.timestamp,
-    });
-
-    console.log(`Message in ${room} from ${user.username}`);
-  });
-
-  // Handle private messages
-  socket.on('private_message', ({ to, message, file }) => {
-    const sender = getUserInfo(socket.id);
-    if (!sender) return;
-
-    const messageData = {
-      id: `${Date.now()}-${socket.id}`,
-      sender: sender.username,
-      senderId: socket.id,
-      to,
-      message,
-      file,
-      timestamp: new Date().toISOString(),
-      isPrivate: true,
-      read: false,
-    };
-
-    // Store private message
-    const senderPM = privateMessages.get(socket.id) || [];
-    senderPM.push(messageData);
-    privateMessages.set(socket.id, senderPM);
-
-    const recipientPM = privateMessages.get(to) || [];
-    recipientPM.push(messageData);
-    privateMessages.set(to, recipientPM);
-
-    // Send to recipient
-    io.to(to).emit('private_message', messageData);
-    
-    // Send back to sender (for confirmation)
-    socket.emit('private_message', messageData);
-
-    // Acknowledge delivery
-    socket.emit('message_delivered', {
-      id: messageData.id,
-      timestamp: messageData.timestamp,
-    });
-
-    console.log(`Private message from ${sender.username} to ${to}`);
-  });
-
-  // Handle typing indicator
-  socket.on('typing', (isTyping) => {
-    const user = getUserInfo(socket.id);
-    if (!user) return;
-
-    const room = user.currentRoom;
-    const typingSet = typingUsers.get(room) || new Set();
-
-    if (isTyping) {
-      typingSet.add(socket.id);
-    } else {
-      typingSet.delete(socket.id);
-    }
-
-    typingUsers.set(room, typingSet);
-
-    // Emit to others in the room
-    socket.to(room).emit('typing_users', {
-      room,
-      users: Array.from(typingSet)
-        .map(id => getUserInfo(id)?.username)
-        .filter(Boolean),
-    });
-  });
-
-  // Handle read receipts
-  socket.on('message_read', ({ messageId, room }) => {
-    const user = getUserInfo(socket.id);
-    if (!user) return;
-
-    const readSet = readReceipts.get(messageId) || new Set();
-    readSet.add(socket.id);
-    readReceipts.set(messageId, readSet);
-
-    // Notify message sender
-    const roomMessages = messages.get(room) || [];
-    const message = roomMessages.find(m => m.id === messageId);
-    
-    if (message && message.senderId) {
-      io.to(message.senderId).emit('message_read_receipt', {
-        messageId,
-        readBy: user.username,
-        readAt: new Date().toISOString(),
-      });
-    }
-  });
-
-  // Handle message reactions
-  socket.on('add_reaction', ({ messageId, emoji, room }) => {
-    const user = getUserInfo(socket.id);
-    if (!user) return;
-
-    io.to(room).emit('reaction_added', {
-      messageId,
-      emoji,
-      username: user.username,
-      userId: socket.id,
-    });
-  });
-
-  // Handle pagination request
-  socket.on('request_messages', ({ room, before, limit = 20 }) => {
-    const roomMessages = messages.get(room) || [];
-    
-    let filteredMessages = roomMessages;
-    if (before) {
-      const index = roomMessages.findIndex(m => m.id === before);
-      if (index > 0) {
-        filteredMessages = roomMessages.slice(Math.max(0, index - limit), index);
-      }
-    } else {
-      filteredMessages = roomMessages.slice(-limit);
-    }
-
-    socket.emit('message_history', {
-      room,
-      messages: filteredMessages,
-      hasMore: filteredMessages.length === limit,
-    });
-  });
-
-  // Handle disconnection
-  socket.on('disconnect', () => {
-    const user = getUserInfo(socket.id);
-    
-    if (user) {
-      // Remove from typing indicators
-      if (user.currentRoom) {
-        const typingSet = typingUsers.get(user.currentRoom);
-        if (typingSet) {
-          typingSet.delete(socket.id);
-          io.to(user.currentRoom).emit('typing_users', {
-            room: user.currentRoom,
-            users: Array.from(typingSet).map(id => getUserInfo(id)?.username).filter(Boolean),
-          });
-        }
+        await user.save();
+        console.log(` User saved to DB: ${username}`);
       }
 
-      // Emit user left notification
-      io.emit('user_left', {
-        username: user.username,
+      socket.join('general');
+
+      // Get all online users from DB
+      let users = [];
+      if (isMongoConnected()) {
+        users = await User.find({ isOnline: true }).select('username socketId currentRoom');
+      }
+
+      io.emit('user_list', users);
+      io.emit('user_joined', {
+        username,
         id: socket.id,
         timestamp: new Date().toISOString(),
       });
 
-      console.log(`${user.username} left the chat`);
+      // Send recent messages from DB
+      if (isMongoConnected()) {
+        const recentMessages = await Message.find({ room: 'general' })
+          .sort({ timestamp: -1 })
+          .limit(50)
+          .lean();
+        
+        socket.emit('message_history', {
+          room: 'general',
+          messages: recentMessages.reverse(),
+        });
+      }
+
+      console.log(`👤 ${username} joined the chat`);
+    } catch (error) {
+      console.error(' Error in user_join:', error);
     }
+  });
 
-    // Remove user
-    users.delete(socket.id);
-    privateMessages.delete(socket.id);
+  // Handle joining a room
+  socket.on('join_room', async (room) => {
+    try {
+      // Update user's current room in DB
+      if (isMongoConnected()) {
+        await User.findOneAndUpdate(
+          { socketId: socket.id },
+          { currentRoom: room, lastActive: Date.now() }
+        );
+      }
 
-    // Emit updated user list
-    io.emit('user_list', Array.from(users.values()));
+      // Leave current room
+      const rooms = Array.from(socket.rooms);
+      rooms.forEach(r => {
+        if (r !== socket.id) {
+          socket.leave(r);
+        }
+      });
+
+      // Join new room
+      socket.join(room);
+
+      // Send room message history from DB
+      if (isMongoConnected()) {
+        const roomMessages = await Message.find({ room })
+          .sort({ timestamp: -1 })
+          .limit(50)
+          .lean();
+        
+        socket.emit('message_history', {
+          room,
+          messages: roomMessages.reverse(),
+        });
+      }
+
+      console.log(` User joined room: ${room}`);
+    } catch (error) {
+      console.error(' Error in join_room:', error);
+    }
+  });
+
+  // Handle chat messages
+  socket.on('send_message', async (data) => {
+    try {
+      const { message, file, room = 'general' } = data;
+
+      // Get user info from DB
+      let sender = 'Anonymous';
+      if (isMongoConnected()) {
+        const user = await User.findOne({ socketId: socket.id });
+        if (user) {
+          sender = user.username;
+          await user.updateActivity();
+        }
+      }
+
+      const messageData = {
+        sender,
+        senderId: socket.id,
+        message,
+        file,
+        room,
+        timestamp: new Date().toISOString(),
+        read: false,
+      };
+
+      // Save to MongoDB
+      if (isMongoConnected()) {
+        const newMessage = new Message(messageData);
+        await newMessage.save();
+        messageData.id = newMessage._id.toString();
+        console.log(` Message saved to DB: ${newMessage._id}`);
+      } else {
+        messageData.id = `${Date.now()}-${socket.id}`;
+      }
+
+      // Emit to all users in the room
+      io.to(room).emit('receive_message', messageData);
+
+      socket.emit('message_delivered', {
+        id: messageData.id,
+        timestamp: messageData.timestamp,
+      });
+
+      console.log(`💬 Message in ${room} from ${sender}`);
+    } catch (error) {
+      console.error(' Error in send_message:', error);
+      socket.emit('error', { message: 'Failed to send message' });
+    }
+  });
+
+  // Handle private messages
+  socket.on('private_message', async ({ to, message, file }) => {
+    try {
+      let sender = 'Anonymous';
+      if (isMongoConnected()) {
+        const user = await User.findOne({ socketId: socket.id });
+        if (user) {
+          sender = user.username;
+        }
+      }
+
+      const messageData = {
+        sender,
+        senderId: socket.id,
+        to,
+        message,
+        file,
+        timestamp: new Date().toISOString(),
+        isPrivate: true,
+        read: false,
+      };
+
+      // Save to MongoDB
+      if (isMongoConnected()) {
+        const newMessage = new Message(messageData);
+        await newMessage.save();
+        messageData.id = newMessage._id.toString();
+        console.log(` Private message saved to DB: ${newMessage._id}`);
+      } else {
+        messageData.id = `${Date.now()}-${socket.id}`;
+      }
+
+      io.to(to).emit('private_message', messageData);
+      socket.emit('private_message', messageData);
+      socket.emit('message_delivered', {
+        id: messageData.id,
+        timestamp: messageData.timestamp,
+      });
+
+      console.log(` Private message from ${sender}`);
+    } catch (error) {
+      console.error(' Error in private_message:', error);
+    }
+  });
+
+  // Handle typing indicator
+  socket.on('typing', async (isTyping) => {
+    try {
+      let currentRoom = 'general';
+      if (isMongoConnected()) {
+        const user = await User.findOne({ socketId: socket.id });
+        if (user) currentRoom = user.currentRoom;
+      }
+
+      const typingSet = typingUsers.get(currentRoom) || new Set();
+
+      if (isTyping) {
+        typingSet.add(socket.id);
+      } else {
+        typingSet.delete(socket.id);
+      }
+
+      typingUsers.set(currentRoom, typingSet);
+
+      // Get usernames for typing users
+      let typingUsernames = [];
+      if (isMongoConnected()) {
+        const socketIds = Array.from(typingSet);
+        const users = await User.find({ socketId: { $in: socketIds } }).select('username');
+        typingUsernames = users.map(u => u.username);
+      }
+
+      socket.to(currentRoom).emit('typing_users', {
+        room: currentRoom,
+        users: typingUsernames,
+      });
+    } catch (error) {
+      console.error(' Error in typing:', error);
+    }
+  });
+
+  // Handle read receipts
+  socket.on('message_read', async ({ messageId, room }) => {
+    try {
+      if (isMongoConnected()) {
+        const message = await Message.findByIdAndUpdate(
+          messageId,
+          { read: true },
+          { new: true }
+        );
+
+        if (message && message.senderId) {
+          const user = await User.findOne({ socketId: socket.id });
+          io.to(message.senderId).emit('message_read_receipt', {
+            messageId,
+            readBy: user?.username || 'Someone',
+            readAt: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (error) {
+      console.error(' Error in message_read:', error);
+    }
+  });
+
+  // Handle message reactions
+  socket.on('add_reaction', async ({ messageId, emoji, room }) => {
+    try {
+      let username = 'Anonymous';
+      if (isMongoConnected()) {
+        const user = await User.findOne({ socketId: socket.id });
+        if (user) username = user.username;
+      }
+
+      io.to(room).emit('reaction_added', {
+        messageId,
+        emoji,
+        username,
+        userId: socket.id,
+      });
+    } catch (error) {
+      console.error(' Error in add_reaction:', error);
+    }
+  });
+
+  // Handle pagination request
+  socket.on('request_messages', async ({ room, before, limit = 20 }) => {
+    try {
+      if (isMongoConnected()) {
+        let query = { room };
+        
+        if (before) {
+          const beforeMessage = await Message.findById(before);
+          if (beforeMessage) {
+            query.timestamp = { $lt: beforeMessage.timestamp };
+          }
+        }
+
+        const messages = await Message.find(query)
+          .sort({ timestamp: -1 })
+          .limit(limit)
+          .lean();
+
+        socket.emit('message_history', {
+          room,
+          messages: messages.reverse(),
+          hasMore: messages.length === limit,
+        });
+      }
+    } catch (error) {
+      console.error(' Error in request_messages:', error);
+    }
+  });
+
+  // Handle disconnection
+  socket.on('disconnect', async () => {
+    try {
+      let username = 'User';
+      
+      if (isMongoConnected()) {
+        const user = await User.findOneAndUpdate(
+          { socketId: socket.id },
+          { isOnline: false, lastActive: Date.now() }
+        );
+        
+        if (user) {
+          username = user.username;
+          
+          // Clear typing indicator
+          const typingSet = typingUsers.get(user.currentRoom);
+          if (typingSet) {
+            typingSet.delete(socket.id);
+          }
+        }
+      }
+
+      io.emit('user_left', {
+        username,
+        id: socket.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Send updated user list
+      if (isMongoConnected()) {
+        const onlineUsers = await User.find({ isOnline: true }).select('username socketId currentRoom');
+        io.emit('user_list', onlineUsers);
+      }
+
+      console.log(`👋 ${username} left the chat`);
+    } catch (error) {
+      console.error(' Error in disconnect:', error);
+    }
   });
 
   // Handle reconnection
   socket.on('reconnect_user', (username) => {
-    console.log(`User reconnecting: ${username}`);
+    console.log(`🔄 User reconnecting: ${username}`);
     socket.emit('user_join', username);
   });
 });
 
-// API routes
-app.get('/api/health', (req, res) => {
+
+// API ROUTES
+
+
+app.get('/api/health', async (req, res) => {
+  let userCount = 0;
+  let messageCount = 0;
+  
+  if (isMongoConnected()) {
+    userCount = await User.countDocuments({ isOnline: true });
+    messageCount = await Message.countDocuments();
+  }
+
   res.json({
     status: 'ok',
-    users: users.size,
+    users: userCount,
     rooms: rooms.length,
+    messages: messageCount,
+    uptime: process.uptime(),
     timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    mongodb: isMongoConnected() ? 'connected' : 'disconnected',
   });
 });
 
-app.get('/api/messages/:room', (req, res) => {
-  const { room } = req.params;
-  const roomMessages = messages.get(room) || [];
-  res.json({
-    room,
-    messages: roomMessages,
-    count: roomMessages.length,
-  });
+app.get('/api/messages/:room', async (req, res) => {
+  try {
+    const { room } = req.params;
+    const limit = parseInt(req.query.limit) || 50;
+    
+    if (isMongoConnected()) {
+      const messages = await Message.find({ room })
+        .sort({ timestamp: -1 })
+        .limit(limit)
+        .lean();
+      
+      res.json({
+        room,
+        messages: messages.reverse(),
+        count: messages.length,
+      });
+    } else {
+      res.json({
+        room,
+        messages: [],
+        count: 0,
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.get('/api/users', (req, res) => {
-  res.json({
-    users: Array.from(users.values()),
-    count: users.size,
-  });
+app.get('/api/users', async (req, res) => {
+  try {
+    if (isMongoConnected()) {
+      const users = await User.find({ isOnline: true }).select('username socketId currentRoom');
+      res.json({
+        users,
+        count: users.length,
+      });
+    } else {
+      res.json({
+        users: [],
+        count: 0,
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.get('/api/rooms', (req, res) => {
-  res.json({
-    rooms: rooms.map(room => ({
-      name: room,
-      users: Array.from(users.values()).filter(u => u.currentRoom === room).length,
-      messages: (messages.get(room) || []).length,
-    })),
-  });
+app.get('/api/rooms', async (req, res) => {
+  try {
+    let roomStats = [];
+    
+    if (isMongoConnected()) {
+      roomStats = await Promise.all(rooms.map(async room => {
+        const userCount = await User.countDocuments({ currentRoom: room, isOnline: true });
+        const messageCount = await Message.countDocuments({ room });
+        return {
+          name: room,
+          users: userCount,
+          messages: messageCount,
+        };
+      }));
+    }
+    
+    res.json({ rooms: roomStats });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/', (req, res) => {
-  res.send('Socket.io Chat Server is running');
+  res.send('Socket.io Chat Server is running ');
+});
+
+// 404 Handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Not Found',
+    path: req.path 
+  });
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
+  console.error(' Error:', err.stack);
+  
+  const statusCode = err.statusCode || 500;
+  const message = process.env.NODE_ENV === 'production' 
+    ? 'Something went wrong!' 
+    : err.message;
+  
+  res.status(statusCode).json({ 
+    error: message,
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+  });
 });
 
-// Start server
+// ============================================
+// START SERVER
+// ============================================
+
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Available rooms: ${rooms.join(', ')}`);
+  console.log('═══════════════════════════════════════');
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📁 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🌐 Client URL: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
+  console.log(`📦 Available rooms: ${rooms.join(', ')}`);
+  console.log(`🗄️  Database: ${isMongoConnected() ? ' Connected' : '  Not connected'}`);
+  console.log('═══════════════════════════════════════');
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
+
+// GRACEFUL SHUTDOWN
+
+const gracefulShutdown = async (signal) => {
+  console.log(`\n${signal} received. Closing server gracefully...`);
+  
   server.close(() => {
-    console.log('HTTP server closed');
+    console.log('✅ HTTP server closed');
   });
+  
+  if (isMongoConnected()) {
+    await mongoose.connection.close();
+    console.log('✅ MongoDB connection closed');
+  }
+  
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled Rejection:', err);
+  if (process.env.NODE_ENV === 'production') {
+    gracefulShutdown('UNHANDLED_REJECTION');
+  }
 });
 
 module.exports = { app, server, io };
