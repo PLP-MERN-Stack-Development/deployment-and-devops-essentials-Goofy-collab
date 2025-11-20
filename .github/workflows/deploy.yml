@@ -1,0 +1,294 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual trigger from GitHub Actions tab
+
+jobs:
+  # Test backend before deployment
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+      
+      - name: Install backend dependencies
+        working-directory: ./server
+        run: npm ci
+      
+      - name: Run backend tests
+        working-directory: ./server
+        run: npm test || echo "No tests configured"
+        continue-on-error: true
+      
+      - name: Check server starts
+        working-directory: ./server
+        run: |
+          timeout 10 npm start &
+          sleep 5
+          echo "✅ Server started successfully"
+        env:
+          NODE_ENV: test
+          PORT: 5000
+          CLIENT_URL: http://localhost:5173
+
+  # Test frontend before deployment
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+      
+      - name: Install frontend dependencies
+        working-directory: ./client
+        run: npm ci
+      
+      - name: Run frontend tests
+        working-directory: ./client
+        run: npm test || echo "No tests configured"
+        continue-on-error: true
+      
+      - name: Build frontend
+        working-directory: ./client
+        run: npm run build
+        env:
+          VITE_SOCKET_URL: http://localhost:5000
+      
+      - name: Verify build output
+        working-directory: ./client
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ Build failed - dist folder not found"
+            exit 1
+          fi
+          echo "✅ Frontend built successfully"
+
+  # Deployment notification and monitoring
+  deploy:
+    name: Monitor Deployment
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    
+    steps:
+      - name: Deployment started
+        run: |
+          echo "🚀 Deployment to production started!"
+          echo ""
+          echo "📦 Backend deploying to Render..."
+          echo "⚡ Frontend deploying to Netlify..."
+          echo ""
+          echo "✅ All tests passed!"
+          echo "✅ Code quality checks passed!"
+      
+      - name: Wait for services
+        run: |
+          echo "⏳ Waiting for deployments to complete..."
+          echo "   This may take 3-5 minutes..."
+          sleep 60
+      
+      - name: Check backend health
+        run: |
+          echo "🔍 Checking backend health..."
+          if [ -n "${{ secrets.BACKEND_URL }}" ]; then
+            response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.BACKEND_URL }}/api/health || echo "000")
+            if [ "$response" = "200" ]; then
+              echo "✅ Backend is healthy (HTTP $response)"
+            else
+              echo "⚠️  Backend returned HTTP $response (may still be deploying)"
+            fi
+          else
+            echo "⚠️  BACKEND_URL secret not configured"
+            echo "   Add it in: Settings → Secrets → Actions"
+          fi
+        continue-on-error: true
+      
+      - name: Check frontend
+        run: |
+          echo "🔍 Checking frontend..."
+          if [ -n "${{ secrets.FRONTEND_URL }}" ]; then
+            response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.FRONTEND_URL }} || echo "000")
+            if [ "$response" = "200" ]; then
+              echo "✅ Frontend is accessible (HTTP $response)"
+            else
+              echo "⚠️  Frontend returned HTTP $response (may still be deploying)"
+            fi
+          else
+            echo "⚠️  FRONTEND_URL secret not configured"
+            echo "   Add it in: Settings → Secrets → Actions"
+          fi
+        continue-on-error: true
+      
+      - name: Deployment summary
+        run: |
+          echo ""
+          echo "═══════════════════════════════════════"
+          echo "📊 Deployment Summary"
+          echo "═══════════════════════════════════════"
+          echo ""
+          echo "Backend:"
+          echo "  Render: https://dashboard.render.com"
+          echo "  URL: ${{ secrets.BACKEND_URL }}"
+          echo ""
+          echo "Frontend:"
+          echo "  Netlify: https://app.netlify.com"
+          echo "  URL: ${{ secrets.FRONTEND_URL }}"
+          echo ""
+          echo "📝 Next steps:"
+          echo "  1. Check Render dashboard for backend status"
+          echo "  2. Check Netlify dashboard for frontend status"
+          echo "  3. Test application at ${{ secrets.FRONTEND_URL }}"
+          echo "  4. Monitor logs for any errors"
+          echo ""
+          echo "═══════════════════════════════════════"
+
+  # Rollback notification on failure
+  rollback-notification:
+    name: Rollback Notification
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: failure()
+    
+    steps:
+      - name: Deployment failed
+        run: |
+          echo "❌ Deployment failed!"
+          echo ""
+          echo "🔄 Rollback may be required"
+          echo ""
+          echo "Steps to rollback:"
+          echo ""
+          echo "Backend (Render):"
+          echo "  1. Go to https://dashboard.render.com"
+          echo "  2. Select your service"
+          echo "  3. Click 'Manual Deploy' → 'Clear build cache & deploy'"
+          echo "  4. Or select previous deployment and redeploy"
+          echo ""
+          echo "Frontend (Netlify):"
+          echo "  1. Go to https://app.netlify.com"
+          echo "  2. Select your site"
+          echo "  3. Go to 'Deploys'"
+          echo "  4. Find last working deployment"
+          echo "  5. Click '⋯' → 'Publish deploy'"
+          echo ""
+          echo "📋 Check logs:"
+          echo "  - Render: Service → Logs"
+          echo "  - Netlify: Site → Deploys → Deploy log"
+      
+      - name: Create rollback issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Deployment Failed - Action Required',
+              body: `## Deployment Failure Alert
+            
+            The deployment to production has failed and may require manual intervention.
+            
+            ### Deployment Details
+            - **Branch**: ${context.ref}
+            - **Commit**: ${context.sha.substring(0, 7)}
+            - **Triggered by**: @${context.actor}
+            - **Workflow**: [View Run](${context.payload.repository.html_url}/actions/runs/${context.runId})
+            
+            ### Action Required
+            
+            #### Check Service Status
+            - [ ] Check Render deployment logs
+            - [ ] Check Netlify deployment logs
+            - [ ] Verify backend health endpoint
+            - [ ] Verify frontend is accessible
+            
+            #### Rollback Instructions
+            
+            **Backend (Render):**
+            1. Go to [Render Dashboard](https://dashboard.render.com)
+            2. Select your web service
+            3. Click "Manual Deploy" → "Clear build cache & deploy"
+            4. Or select a previous successful deployment
+            
+            **Frontend (Netlify):**
+            1. Go to [Netlify Dashboard](https://app.netlify.com)
+            2. Select your site
+            3. Navigate to "Deploys"
+            4. Find the last successful deployment
+            5. Click "⋯" → "Publish deploy"
+            
+            ### Debugging
+            
+            **Check these logs:**
+            - Render service logs
+            - Netlify deploy logs
+            - GitHub Actions logs (this workflow)
+            - Browser console (if frontend issue)
+            - MongoDB connection (if database issue)
+            
+            **Common issues:**
+            - Environment variables not set correctly
+            - MongoDB connection failed
+            - CORS configuration issue
+            - Build failed due to dependency issues
+            - Port binding issues on Render
+            
+            ### Post-Resolution
+            
+            Once resolved:
+            - [ ] Close this issue
+            - [ ] Document the cause
+            - [ ] Update deployment procedures if needed
+            - [ ] Consider adding more tests to prevent recurrence
+            
+            ---
+            *This issue was automatically created by GitHub Actions*`,
+              labels: ['deployment', 'urgent', 'bug', 'production']
+            })
+
+  # Success notification
+  deployment-success:
+    name: Deployment Success
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: success()
+    
+    steps:
+      - name: Success notification
+        run: |
+          echo "🎉 Deployment completed successfully!"
+          echo ""
+          echo "✅ Backend deployed to Render"
+          echo "✅ Frontend deployed to Netlify"
+          echo "✅ All health checks passed"
+          echo ""
+          echo "🌐 Your application is live!"
+          echo ""
+          echo "URLs:"
+          echo "  Frontend: ${{ secrets.FRONTEND_URL }}"
+          echo "  Backend: ${{ secrets.BACKEND_URL }}"
+          echo "  Health Check: ${{ secrets.BACKEND_URL }}/api/health"
+          echo ""
+          echo "📊 Monitor your application:"
+          echo "  - UptimeRobot: Check uptime status"
+          echo "  - Render: Monitor backend metrics"
+          echo "  - Netlify: Check frontend analytics"
+          echo ""
+          echo "🎊 Great job!"

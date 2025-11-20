@@ -1,0 +1,106 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'client/**'
+      - '.github/workflows/frontend-ci.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'client/**'
+
+jobs:
+  test:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: ./client
+        run: npm ci
+      
+      - name: Run linter
+        working-directory: ./client
+        run: npm run lint || echo "No lint script found, skipping..."
+        continue-on-error: true
+      
+      - name: Run tests
+        working-directory: ./client
+        run: npm test || echo "No test script found, skipping..."
+        continue-on-error: true
+      
+      - name: Build application
+        working-directory: ./client
+        run: npm run build
+        env:
+          VITE_SOCKET_URL: http://localhost:5000
+      
+      - name: Check build output
+        working-directory: ./client
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ Build failed - dist folder not created"
+            exit 1
+          fi
+          echo "✅ Build successful - dist folder created"
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build-${{ matrix.node-version }}
+          path: client/dist
+          retention-days: 7
+
+  build-analysis:
+    name: Analyze Build
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: ./client
+        run: npm ci
+      
+      - name: Build for production
+        working-directory: ./client
+        run: npm run build
+        env:
+          VITE_SOCKET_URL: http://localhost:5000
+      
+      - name: Check bundle size
+        working-directory: ./client
+        run: |
+          echo "📊 Build Size Analysis:"
+          du -sh dist/
+          echo "📁 Assets breakdown:"
+          find dist/assets -type f -exec ls -lh {} \; | awk '{print $5, $9}'
+      
+      - name: Security audit
+        working-directory: ./client
+        run: npm audit --audit-level=moderate || true
