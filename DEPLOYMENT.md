@@ -488,4 +488,3 @@ Once all tests pass, your app is live! 🚀
 6. ✅ Take screenshots
 7. ✅ Submit assignment
 
-**Congratulations on deploying your app!** 🎉

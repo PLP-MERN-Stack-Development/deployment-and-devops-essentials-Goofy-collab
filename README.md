@@ -1,8 +1,8 @@
 # 💬 Real-Time Chat Application with Socket.io
 
-[![Backend CI](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/backend-ci.yml)
-[![Frontend CI](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/frontend-ci.yml)
-[![Deploy](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/deploy.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/deploy.yml)
+[![Backend CI](https://github.com/PLP-MERN-Stack-Development/deployment-and-devops-essentials-Goofy-collab/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/PLP-MERN-Stack-Development/deployment-and-devops-essentials-Goofy-collab/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/PLP-MERN-Stack-Development/deployment-and-devops-essentials-Goofy-collab/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/PLP-MERN-Stack-Development/deployment-and-devops-essentials-Goofy-collab/actions/workflows/frontend-ci.yml)
+[![Deploy](https://github.com/PLP-MERN-Stack-Development/deployment-and-devops-essentials-Goofy-collab/actions/workflows/deploy.yml/badge.svg)](https://github.com/PLP-MERN-Stack-Development/deployment-and-devops-essentials-Goofy-collab/actions/workflows/deploy.yml)
 
 A full-featured, production-ready real-time chat application built with Socket.io, React, Node.js, Express, and MongoDB.
 
@@ -12,9 +12,8 @@ A full-featured, production-ready real-time chat application built with Socket.i
 
 | Service | URL | Status |
 |---------|-----|--------|
-| **Frontend** | [https://your-app.vercel.app](https://your-app.vercel.app) | 🟢 Live |
-| **Backend API** | [https://your-app.up.railway.app](https://your-app.up.railway.app) | 🟢 Live |
-| **API Health** | [/api/health](https://your-app.up.railway.app/api/health) | 🟢 Live |
+| **Frontend** | [https://deluxe-clafoutis-e81b8c.netlify.app/](https://deluxe-clafoutis-e81b8c.netlify.app/) | 🟢 Live |
+| **Backend API** | [https://deployment-and-devops-essentials-goofy.onrender.com](https://deployment-and-devops-essentials-goofy.onrender.com) | 🟢 Live |
 | **Database** | MongoDB Atlas | 🟢 Connected |
 
 ---
@@ -25,7 +24,7 @@ A full-featured, production-ready real-time chat application built with Socket.i
 ![Login Page](./screenshots/login.png)
 
 ### Main Chat Interface
-![Main Chat](./screenshots/chat.png)
+![Main Chat](./screenshots/privatechat.png)
 
 ### CI/CD Pipeline
 ![CI/CD Pipeline](./screenshots/cicd-pipeline.png)
@@ -75,7 +74,7 @@ A full-featured, production-ready real-time chat application built with Socket.i
 - **Compression** - Response compression
 
 ### DevOps & Deployment
-- **Railway** - Backend hosting
+- **render** - Backend hosting
 - **Vercel** - Frontend hosting
 - **MongoDB Atlas** - Database hosting
 - **GitHub Actions** - CI/CD pipeline
@@ -97,8 +96,8 @@ A full-featured, production-ready real-time chat application built with Socket.i
 #### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git
-cd YOUR_REPO
+git clone https://github.com/PLP-MERN-Stack-Development/deployment-and-devops-essentials-Goofy-collab.git
+cd deployment-and-devops-essentials-Goofy-collab
 ```
 
 #### 2. Set up Server
@@ -154,7 +153,7 @@ This project uses **GitHub Actions** for CI/CD. Every push to `main` branch:
 
 1. ✅ Runs automated tests
 2. ✅ Builds the application
-3. ✅ Deploys to Railway (backend) and Vercel (frontend)
+3. ✅ Deploys to render (backend) and Vercel (frontend)
 
 ### Manual Deployment
 
@@ -170,7 +169,7 @@ chmod +x scripts/deploy.sh
 # Push to GitHub
 git push origin main
 
-# Railway and Vercel will auto-deploy
+# render and Vercel will auto-deploy
 ```
 
 ---
@@ -202,16 +201,16 @@ git push origin main
 
 **Deploy:**
 1. Run all tests
-2. Deploy to Railway (auto)
+2. Deploy to render (auto)
 3. Deploy to Vercel (auto)
 4. Run health checks
 5. Notify on failure
 
 ### View Pipeline Status
 
-- [Backend CI Results](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/backend-ci.yml)
-- [Frontend CI Results](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/frontend-ci.yml)
-- [Deployment Status](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/deploy.yml)
+- [Backend CI Results](https://github.com/PLP-MERN-Stack-Development/deployment-and-devops-essentials-Goofy-collab/actions/workflows/backend-ci.yml)
+- [Frontend CI Results](https://github.com/PLP-MERN-Stack-Development/deployment-and-devops-essentials-Goofy-collab/actions/workflows/frontend-ci.yml)
+- [Deployment Status](https://github.com/PLP-MERN-Stack-Development/deployment-and-devops-essentials-Goofy-collab/actions/workflows/deploy.yml)
 
 ---
 
@@ -221,7 +220,7 @@ git push origin main
 
 **Backend Health Check:**
 ```bash
-curl https://your-app.up.railway.app/api/health
+curl https://deployment-and-devops-essentials-goofy.onrender.com/api/health
 ```
 
 **Response:**
@@ -241,24 +240,16 @@ curl https://your-app.up.railway.app/api/health
 
 - **Tool:** UptimeRobot
 - **Monitored Endpoints:**
-  - Backend: `https://your-app.up.railway.app/api/health`
-  - Frontend: `https://your-app.vercel.app`
+  - Backend: `https://deployment-and-devops-essentials-goofy.onrender.com/api/health`
+  - Frontend: `https://deluxe-clafoutis-e81b8c.netlify.app/`
 - **Check Interval:** Every 5 minutes
 - **Alerts:** Email on downtime
-
-**Public Status Page:** [https://stats.uptimerobot.com/YOUR_ID](https://stats.uptimerobot.com/YOUR_ID)
-
-### Error Tracking
-
-- **Tool:** Sentry (optional)
-- **Backend:** [Sentry Dashboard](https://sentry.io/organizations/YOUR_ORG/projects/backend/)
-- **Frontend:** [Sentry Dashboard](https://sentry.io/organizations/YOUR_ORG/projects/frontend/)
 
 ### Performance Monitoring
 
 **Backend:**
-- Railway built-in metrics (CPU, Memory, Network)
-- Access: Railway Dashboard → Metrics
+- render built-in metrics (CPU, Memory, Network)
+- Access: render Dashboard → Metrics
 
 **Frontend:**
 - Vercel Analytics
@@ -297,7 +288,7 @@ SENTRY_DSN=https://your-sentry-dsn@sentry.io/project (optional)
 ### Client (.env)
 
 ```env
-VITE_SOCKET_URL=https://your-app.up.railway.app
+VITE_SOCKET_URL=https://your-app.up.render.app
 VITE_SENTRY_DSN=https://your-frontend-sentry-dsn@sentry.io/project (optional)
 ```
 
@@ -371,7 +362,7 @@ All tests run automatically on every push via GitHub Actions.
 - ✅ **CORS** - Cross-origin request protection
 - ✅ **Rate Limiting** - API abuse prevention
 - ✅ **Environment Variables** - Sensitive data protection
-- ✅ **HTTPS** - SSL/TLS encryption (auto via Railway/Vercel)
+- ✅ **HTTPS** - SSL/TLS encryption (auto via render/Vercel)
 - ✅ **MongoDB Security** - IP whitelist, user permissions
 - ✅ **Input Validation** - XSS and injection prevention
 
@@ -402,7 +393,7 @@ All tests run automatically on every push via GitHub Actions.
 **Backend not starting:**
 - Check MongoDB connection string
 - Verify environment variables
-- Check Railway logs
+- Check render logs
 
 **Frontend not connecting:**
 - Verify `VITE_SOCKET_URL` is correct
@@ -410,7 +401,7 @@ All tests run automatically on every push via GitHub Actions.
 - Clear browser cache
 
 **CORS errors:**
-- Update `CLIENT_URL` in Railway
+- Update `CLIENT_URL` in render
 - Redeploy backend
 - Hard refresh browser
 
@@ -423,7 +414,7 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md#troubleshooting) for detailed troubleshootin
 ### Backend Rollback
 
 ```bash
-# Via Railway Dashboard:
+# Via render Dashboard:
 # 1. Go to Deployments
 # 2. Select previous working version
 # 3. Click "Redeploy"
@@ -467,19 +458,11 @@ MIT License - see [LICENSE](./LICENSE) file
 
 ---
 
-## 👨‍💻 Author
-
-**Your Name**
-- GitHub: [@YOUR_USERNAME](https://github.com/YOUR_USERNAME)
-- Email: your.email@example.com
-
----
-
 ## 🙏 Acknowledgments
 
 - Socket.io team for excellent real-time library
 - MongoDB Atlas for managed database
-- Railway and Vercel for easy deployment
+- Render and Vercel for easy deployment
 - Week 7 DevOps assignment
 
 ---

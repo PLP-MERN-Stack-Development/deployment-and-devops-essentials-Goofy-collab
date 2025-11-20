@@ -31,7 +31,7 @@ app.get('/api/health', async (req, res) => {
 
 **Test it:**
 ```bash
-curl https://your-app.up.railway.app/api/health
+curl https://your-app.up.render.app/api/health
 ```
 
 ---
@@ -44,7 +44,7 @@ curl https://your-app.up.railway.app/api/health
 2. **Add New Monitor:**
    - Monitor Type: HTTP(s)
    - Friendly Name: Chat App Backend
-   - URL: `https://your-app.up.railway.app/api/health`
+   - URL: `https://your-app.up.render.app/api/health`
    - Monitoring Interval: 5 minutes
    - Alert When: Down
 
@@ -122,7 +122,7 @@ app.use(Sentry.Handlers.tracingHandler());
 app.use(Sentry.Handlers.errorHandler());
 ```
 
-**Add to Railway environment variables:**
+**Add to render environment variables:**
 ```
 SENTRY_DSN=https://your-sentry-dsn@sentry.io/project-id
 ```
@@ -163,16 +163,16 @@ VITE_SENTRY_DSN=https://your-frontend-sentry-dsn@sentry.io/project-id
 
 ## 📊 Performance Monitoring
 
-### Backend Performance (Railway Built-in)
+### Backend Performance (render Built-in)
 
-**Railway provides:**
+**render provides:**
 - ✅ CPU usage metrics
 - ✅ Memory usage metrics
 - ✅ Network traffic
 - ✅ Deployment logs
 
 **Access:**
-1. Railway Dashboard → Your Project
+1. render Dashboard → Your Project
 2. Click "Metrics" tab
 3. View real-time performance
 
@@ -304,7 +304,7 @@ updates:
 1. **Check Monitoring:**
    - UptimeRobot alerts
    - Sentry error reports
-   - Railway/Vercel logs
+   - render/Vercel logs
 
 2. **Identify Issue:**
    - Backend down?
@@ -313,13 +313,13 @@ updates:
    - Network problem?
 
 3. **Quick Fixes:**
-   - Restart service (Railway/Vercel redeploy)
+   - Restart service (render/Vercel redeploy)
    - Check environment variables
    - Verify MongoDB connection
    - Check CORS settings
 
 4. **Rollback if Needed:**
-   - Railway: Click "Deployments" → Select previous version → "Redeploy"
+   - render: Click "Deployments" → Select previous version → "Redeploy"
    - Vercel: Click "Deployments" → Select previous version → "Promote to Production"
 
 5. **Post-Mortem:**
@@ -347,9 +347,9 @@ Before every deployment:
 
 ## 🔄 Rollback Procedures
 
-### Backend Rollback (Railway)
+### Backend Rollback (render)
 
-1. Go to Railway Dashboard
+1. Go to render Dashboard
 2. Click "Deployments"
 3. Find last working deployment
 4. Click "⋮" → "Redeploy"
@@ -385,8 +385,8 @@ Before every deployment:
 | Uptime | UptimeRobot | < 99% | Investigate |
 | Response Time | UptimeRobot | > 2s | Optimize |
 | Error Rate | Sentry | > 1% | Fix bugs |
-| CPU Usage | Railway | > 80% | Scale up |
-| Memory | Railway | > 80% | Optimize |
+| CPU Usage | render | > 80% | Scale up |
+| Memory | render | > 80% | Optimize |
 | DB Connections | MongoDB Atlas | > 80 | Investigate |
 | Active Users | Socket.io | Monitor | Plan scaling |
 
@@ -399,8 +399,8 @@ Task 5 Requirements:
 - [x] **Health check endpoints** - Already in server.js ✅
 - [ ] **Uptime monitoring** - Set up UptimeRobot
 - [ ] **Error tracking** - Set up Sentry (optional)
-- [x] **Server monitoring** - Railway built-in ✅
-- [x] **API performance** - Railway metrics ✅
+- [x] **Server monitoring** - render built-in ✅
+- [x] **API performance** - render metrics ✅
 - [ ] **Frontend monitoring** - Vercel Analytics
 - [x] **Database backups** - MongoDB Atlas automatic ✅
 - [x] **Maintenance plan** - Documented above ✅
@@ -430,10 +430,9 @@ Task 5 Requirements:
 
 - [UptimeRobot Docs](https://uptimerobot.com/help/)
 - [Sentry Docs](https://docs.sentry.io/)
-- [Railway Monitoring](https://docs.railway.app/reference/monitoring)
+- [render Monitoring](https://docs.render.app/reference/monitoring)
 - [Vercel Analytics](https://vercel.com/docs/analytics)
 - [MongoDB Atlas Monitoring](https://www.mongodb.com/docs/atlas/monitoring/)
 
 ---
 
-**Monitoring configured? Update your README with the details!** ✅

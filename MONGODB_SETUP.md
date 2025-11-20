@@ -153,7 +153,7 @@ mongodb+srv://chatapp-user:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=tr
 Replace `<password>` with your actual password (the one you saved):
 
 ```
-mongodb+srv://chatapp-user:xK9mP2nQ7vR5sL8t@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
+mongodb+srv://chatapp-user:xK9mP2nQ7iop5sL8t@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
 ```
 
 **Important:** No angle brackets `< >` in the final string!
@@ -163,7 +163,7 @@ mongodb+srv://chatapp-user:xK9mP2nQ7vR5sL8t@cluster0.xxxxx.mongodb.net/?retryWri
 Add your database name after `.net/`:
 
 ```
-mongodb+srv://chatapp-user:xK9mP2nQ7vR5sL8t@cluster0.xxxxx.mongodb.net/chatapp?retryWrites=true&w=majority
+mongodb+srv://chatapp-user:xK9mP2nQ7iop5sL8t@cluster0.xxxxx.mongodb.net/chatapp?retryWrites=true&w=majority
 ```
 
 **⚠️ Save this complete connection string!**
